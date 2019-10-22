@@ -2677,7 +2677,7 @@ update_logical_result (THREAD_ENTRY * thread_p, DB_LOGICAL ev_res, int *qualific
       if (key_filter->num_vstr_ptr != NULL && *key_filter->num_vstr_ptr)
 	{
 	  int i;
-	  REGU_VARIABLE_LIST regup;
+	  REGU_VARIABLE_LIST regup, matched_regup;
 	  DB_VALUE *dbvalp;
 
 	  /* read the key range the values from the heap into the attribute cache */
@@ -2687,14 +2687,29 @@ update_logical_result (THREAD_ENTRY * thread_p, DB_LOGICAL ev_res, int *qualific
 	    }
 
 	  /* for all attributes specified in the key range, apply special data filter; 'key range attr IS NOT NULL' */
-	  regup = key_filter->scan_pred->regu_list;
-	  for (i = 0; i < *key_filter->num_vstr_ptr && regup; i++)
+	  for (i = 0; i < *key_filter->num_vstr_ptr; i++)
 	    {
 	      if (key_filter->vstr_ids[i] == -1)
 		{
 		  continue;	/* skip and go ahead */
 		}
 
+	      matched_regup = NULL;
+	      for (regup = key_filter->scan_pred->regu_list; regup != NULL; regup = regup->next)
+		{
+		  if (key_filter->vstr_ids[i] == regup->value.value.attr_descr.id)
+		    {
+		      matched_regup = regup;
+		      break;
+		    }
+		}
+
+	      if (matched_regup == NULL)
+		{
+		  continue;
+		}
+
+	      dbvalp = NULL;
 	      if (fetch_peek_dbval (thread_p, &regup->value, key_filter->val_descr, NULL, NULL, NULL, &dbvalp) !=
 		  NO_ERROR)
 		{
@@ -2716,18 +2731,13 @@ update_logical_result (THREAD_ENTRY * thread_p, DB_LOGICAL ev_res, int *qualific
 	}
     }
 
-  if (ev_res == V_ERROR)
-    {
-      return V_ERROR;
-    }
-  else
-    {
-      if (ev_res != V_TRUE)	/* V_FALSE || V_UNKNOWN */
-	{
-	  return V_FALSE;	/* not qualified, continue to the next tuple */
-	}
-    }
+    assert (ev_res != V_ERROR);
 
+    if (ev_res != V_TRUE)	/* V_FALSE || V_UNKNOWN */
+      {
+	return V_FALSE;	/* not qualified, continue to the next tuple */
+      }
+    
   return V_TRUE;
 }
 
