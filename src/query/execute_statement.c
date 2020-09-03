@@ -6910,7 +6910,7 @@ get_select_list_to_update (PARSER_CONTEXT * parser, PT_NODE * from, PT_NODE * co
 	  AU_ENABLE (parser->au_save);
 
 	  assert (parser->query_id == NULL_QUERY_ID);
-	  if (do_select (parser, statement) < NO_ERROR)
+	  if (do_select_for_ins_upd (parser, statement) < NO_ERROR)
 	    {
 	      /* query failed, an error has already been set */
 	      statement = NULL;
@@ -13855,7 +13855,6 @@ dbmeth_print (DB_OBJECT * self, DB_VALUE * result, DB_VALUE * msg)
  *
  */
 
-
 /*
  * do_select() -
  *   return: Error code
@@ -13866,6 +13865,34 @@ dbmeth_print (DB_OBJECT * self, DB_VALUE * result, DB_VALUE * msg)
  */
 int
 do_select (PARSER_CONTEXT * parser, PT_NODE * statement)
+{
+  do_select_internal(parser, statement, false);
+}
+
+/*
+ * do_select_for_ins_upd() -
+ *   return: Error code
+ *   parser(in/out): Parser context
+ *   statement(in/out): A statement to do
+ *
+ * Note: Side effects can exist at returned result through application extern
+ */
+int
+do_select_for_ins_upd (PARSER_CONTEXT * parser, PT_NODE * statement)
+{
+  do_select_internal(parser, statement, true);
+}
+
+/*
+ * do_select_internal() -
+ *   return: Error code
+ *   parser(in/out): Parser context
+ *   statement(in/out): A statement to do
+ *
+ * Note: Side effects can exist at returned result through application extern
+ */
+int
+do_select_internal (PARSER_CONTEXT * parser, PT_NODE * statement, bool for_ins_upd)
 {
   int error;
   XASL_NODE *xasl = NULL;
@@ -13922,6 +13949,17 @@ do_select (PARSER_CONTEXT * parser, PT_NODE * statement)
 
   xasl = parser_generate_xasl (parser, statement);
 
+  if (for_ins_upd)
+    {
+      if (xasl->outptr_list)
+	{
+	  for (REGU_VARIABLE_LIST regu_var_list = xasl->outptr_list->valptrp; regu_var_list;
+	       regu_var_list = regu_var_list->next)
+	    {
+	      regu_var_list->value.flags |= REGU_VARIABLE_UPD_INS_LIST;
+	    }
+	}
+    }
   if (xasl && !pt_has_error (parser))
     {
       if (pt_false_where (parser, statement))
@@ -15478,7 +15516,7 @@ do_merge (PARSER_CONTEXT * parser, PT_NODE * statement)
 
 	  query_id_self = parser->query_id;
 	  parser->query_id = NULL_QUERY_ID;
-	  err = do_select (parser, ins_select_stmt);
+	  err = do_select_for_ins_upd (parser, ins_select_stmt);
 	  ins_query_id = parser->query_id;
 	  parser->query_id = query_id_self;
 
@@ -15534,7 +15572,7 @@ do_merge (PARSER_CONTEXT * parser, PT_NODE * statement)
 
 	  query_id_self = parser->query_id;
 	  parser->query_id = NULL_QUERY_ID;
-	  err = do_select (parser, upd_select_stmt);
+	  err = do_select_for_ins_upd (parser, upd_select_stmt);
 	  upd_query_id = parser->query_id;
 	  parser->query_id = query_id_self;
 
@@ -15916,6 +15954,7 @@ do_prepare_merge (PARSER_CONTEXT * parser, PT_NODE * statement)
       if (parser->long_string_skipped || parser->print_type_ambiguity)
 	{
 	  statement->cannot_prepare = 1;
+	  statement->info.merge.flags &= ~PT_MERGE_INFO_SERVER_OP;
 	  goto cleanup;
 	}
 
